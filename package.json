@@ -1,0 +1,27 @@
+{
+  "name": "brus-projekt",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "crypto": "^1.0.1",
+    "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "pg": "^8.20.0",
+    "pgsql-ast-parser": "^12.0.2"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.2",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.20.0",
+    "hardhat": "^2.28.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
