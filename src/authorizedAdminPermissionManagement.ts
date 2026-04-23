@@ -1,80 +1,88 @@
 import { ethers } from 'ethers';
+import * as readline from 'readline/promises';
+import { stdin as input, stdout as output } from 'process';
 
-async function grantPermissionAsAdmin() {
-    // 1. Konfiguracja "Panelu Admina"
-    // To jest klucz prywatny, którego nikomu nie podajemy. Używamy go tylko lokalnie do podpisu.
-    const adminPrivateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-    const adminWallet = new ethers.Wallet(adminPrivateKey);
+// Stałe konfiguracyjne
+const ADMIN_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const API_BASE_URL = "http://localhost:3000/api/admin";
 
-    // 2. Co chcemy zrobić?
-    const payload = {
-        targetAddress: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC", // Klient Testowy
-        table: "users",
-        operation: "DELETE"
-    };
+async function main() {
+    // Inicjalizacja interfejsu do czytania z konsoli
+    const rl = readline.createInterface({ input, output });
 
-    // 3. Generowanie bezpiecznego podpisu
-    // Pro-tip: Dodajemy znacznik czasu (timestamp), aby haker nie mógł przechwycić
-    // tej konkretnej wiadomości i wysłać jej ponownie jutro (tzw. Replay Attack).
-    const timestamp = Date.now();
-    const messageToSign = `Zatwierdzam nadanie uprawnien. Timestamp: ${timestamp}`;
+    console.log("=========================================");
+    console.log("        🔐 PANEL ADMINISTRATORA        ");
+    console.log("=========================================\n");
 
-    console.log(`Generowanie podpisu dla adresu: ${adminWallet.address}...`);
-    const signature = await adminWallet.signMessage(messageToSign);
+    try {
+        // 1. Wybór akcji
+        console.log("Dostępne akcje:");
+        console.log("  [1] Nadaj uprawnienia (Grant)");
+        console.log("  [2] Odbierz uprawnienia (Revoke)\n");
 
-    // 4. Wysłanie HTTP POST
-    console.log("Wysyłanie zabezpieczonego żądania do serwera...");
-    const response = await fetch("http://localhost:3000/api/admin/grant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            ...payload,
-            message: messageToSign,
-            signature: signature // Wysyłamy wygenerowany ciąg znaków (podpis)
-        })
-    });
+        let actionChoice = '';
+        while (actionChoice !== '1' && actionChoice !== '2') {
+            actionChoice = await rl.question('Wybierz numer akcji (1 lub 2): ');
+        }
 
-    const data = await response.json();
-    console.log("\nOtrzymana odpowiedź z serwera:");
-    console.log(data);
-}
-async function revokePermissionAsAdmin() {
-    // 1. Konfiguracja "Panelu Admina"
-    const adminPrivateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-    const adminWallet = new ethers.Wallet(adminPrivateKey);
+        const isGranting = actionChoice === '1';
+        const actionName = isGranting ? 'nadanie' : 'odebranie';
+        const endpoint = isGranting ? '/grant' : '/revoke';
 
-    // 2. Co chcemy zrobić? (Odbieramy dokładnie to, co wcześniej nadaliśmy)
-    const payload = {
-        targetAddress: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC", // Klient Testowy
-        table: "users",
-        operation: "DELETE"
-    };
+        console.log(`\n--- Konfiguracja dla akcji: ${actionName.toUpperCase()} ---`);
 
-    // 3. Generowanie bezpiecznego podpisu
-    const timestamp = Date.now();
-    // Zmieniamy treść wiadomości, by odpowiadała intencji akcji
-    const messageToSign = `Zatwierdzam odebranie uprawnien. Timestamp: ${timestamp}`;
+        // 2. Pobieranie parametrów od administratora
+        const targetAddress = await rl.question('1. Podaj adres docelowy (np. 0x3C4...): ');
+        const table = await rl.question('2. Podaj nazwę tabeli (np. users): ');
+        const operationInput = await rl.question('3. Podaj operację (SELECT, INSERT, UPDATE, DELETE): ');
 
-    console.log(`Generowanie podpisu dla adresu: ${adminWallet.address}...`);
-    const signature = await adminWallet.signMessage(messageToSign);
+        const operation = operationInput.toUpperCase().trim();
 
-    // 4. Wysłanie HTTP POST na endpoint /revoke
-    console.log("Wysyłanie zabezpieczonego żądania do serwera (Odbieranie uprawnień)...");
-    const response = await fetch("http://localhost:3000/api/admin/revoke", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            ...payload,
+        // Zamknięcie strumienia wejścia
+        rl.close();
+
+        // 3. Konfiguracja Portfela i Wiadomości
+        const adminWallet = new ethers.Wallet(ADMIN_PRIVATE_KEY);
+        const timestamp = Date.now();
+        const messageToSign = `Zatwierdzam ${actionName} uprawnien. Timestamp: ${timestamp}`;
+
+        console.log(`\n⏳ Generowanie podpisu kryptograficznego dla ${adminWallet.address}...`);
+        const signature = await adminWallet.signMessage(messageToSign);
+
+        const payload = {
+            targetAddress: targetAddress.trim(),
+            table: table.trim(),
+            operation: operation,
             message: messageToSign,
             signature: signature
-        })
-    });
+        };
 
-    const data = await response.json();
-    console.log("\nOtrzymana odpowiedź z serwera:");
-    console.log(data);
+        // 4. Wysłanie HTTP POST
+        console.log(`🚀 Wysyłanie żądania do: ${API_BASE_URL}${endpoint} ...\n`);
+
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        // 5. Wyświetlenie wyniku
+        console.log("================ WYNIK ================");
+        if (data.status === 'success') {
+            console.log(`✅ Sukces: ${data.message}`);
+            if (data.txHash) console.log(`🔗 Hash Transakcji: ${data.txHash}`);
+        } else {
+            console.log(`❌ Błąd: ${data.message}`);
+        }
+        console.log("=======================================\n");
+
+    } catch (error) {
+        console.error("Wystąpił krytyczny błąd w aplikacji klienckiej:", error);
+        rl.close();
+    }
 }
 
-// Uruchomienie wybranej funkcji:
-grantPermissionAsAdmin();
-// revokePermissionAsAdmin();
+// Uruchomienie głównej pętli
+main();
