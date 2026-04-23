@@ -20,6 +20,8 @@ const proxyWallet = new ethers.Wallet(proxyPrivateKey, provider);
 const adminPrivateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
 
+const ADMIN_PUBLIC_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+
 // TUTAJ WKLEJ ADRESY ZE SKRYPTU WDROŻENIOWEGO
 const ACCESS_CONTROL_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const AUDIT_LOG_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
@@ -169,18 +171,35 @@ app.post('/api/query', async (req: Request, res: Response): Promise<any> => {
     }
 });
 
-// --- NOWY ENDPOINT ADMINISTRACYJNY ---
 app.post('/api/admin/grant', async (req: Request, res: Response): Promise<any> => {
     try {
-        const { targetAddress, table, operation } = req.body;
+        // Oczekujemy teraz dodatkowo parametru message i signature
+        const { targetAddress, table, operation, message, signature } = req.body;
 
-        console.log(`[ADMIN] Próba nadania uprawnień: ${operation} na tabeli ${table} dla ${targetAddress}`);
+        // --- 1. ZABEZPIECZENIE WEB3 (Weryfikacja Podpisu) ---
+        if (!message || !signature) {
+            return res.status(401).json({ status: "error", message: "Brak kryptograficznego podpisu (signature)." });
+        }
 
-        // Wywołujemy funkcję w smart kontrakcie. Ponieważ zmienia ona stan, musimy poczekać na blok.
+        let recoveredAddress: string;
+        try {
+            // Serwer kryptograficznie sprawdza, kto podpisał tę wiadomość
+            recoveredAddress = ethers.verifyMessage(message, signature);
+        } catch (e) {
+            return res.status(400).json({ status: "error", message: "Nieprawidłowy format podpisu." });
+        }
+
+        // Porównujemy odzyskany adres z adresem naszego Admina
+        if (recoveredAddress.toLowerCase() !== ADMIN_PUBLIC_ADDRESS.toLowerCase()) {
+            console.log(`[ADMIN] ❌ Próba nieautoryzowanego dostępu od: ${recoveredAddress}`);
+            return res.status(403).json({ status: "error", message: "Odmowa dostępu: Nie jesteś administratorem." });
+        }
+
+        // --- 2. WŁAŚCIWA LOGIKA (Wykonanie transakcji) ---
+        console.log(`[ADMIN] 🔐 Uwierzytelnienie poprawne. Nadawanie: ${operation} na ${table} dla ${targetAddress}`);
+
         const tx = await adminAccessControlContract.grantPermission(targetAddress, table, operation);
         const receipt = await tx.wait();
-
-        console.log(`[ADMIN] ✅ Uprawnienia nadane w bloku: ${receipt.blockNumber}`);
 
         return res.json({
             status: "success",
@@ -189,23 +208,39 @@ app.post('/api/admin/grant', async (req: Request, res: Response): Promise<any> =
         });
 
     } catch (error: any) {
-        console.error("Błąd podczas nadawania uprawnień:", error.reason || error);
-        return res.status(500).json({ status: "error", message: "Błąd serwera lub brak uprawnień admina (Smart Contract odrzucił transakcję)." });
+        console.error("Błąd podczas nadawania uprawnień:", error);
+        return res.status(500).json({ status: "error", message: "Błąd serwera." });
     }
 });
 
 // --- NOWY ENDPOINT ADMINISTRACYJNY ---
 app.post('/api/admin/revoke', async (req: Request, res: Response): Promise<any> => {
     try {
-        const { targetAddress, table, operation } = req.body;
+        const { targetAddress, table, operation, message, signature } = req.body;
 
-        console.log(`[ADMIN] Próba odebrania uprawnień: ${operation} na tabeli ${table} dla ${targetAddress}`);
+        // --- 1. ZABEZPIECZENIE WEB3 (Weryfikacja Podpisu) ---
+        if (!message || !signature) {
+            return res.status(401).json({ status: "error", message: "Brak kryptograficznego podpisu (signature)." });
+        }
 
-        // Wywołujemy funkcję w smart kontrakcie. Ponieważ zmienia ona stan, musimy poczekać na blok.
+        let recoveredAddress: string;
+        try {
+            recoveredAddress = ethers.verifyMessage(message, signature);
+        } catch (e) {
+            return res.status(400).json({ status: "error", message: "Nieprawidłowy format podpisu." });
+        }
+
+        if (recoveredAddress.toLowerCase() !== ADMIN_PUBLIC_ADDRESS.toLowerCase()) {
+            console.log(`[ADMIN] ❌ Próba nieautoryzowanego dostępu od: ${recoveredAddress}`);
+            return res.status(403).json({ status: "error", message: "Odmowa dostępu: Nie jesteś administratorem." });
+        }
+
+        // --- 2. WŁAŚCIWA LOGIKA (Wykonanie transakcji) ---
+        console.log(`[ADMIN] 🔐 Uwierzytelnienie poprawne. Odbieranie: ${operation} na ${table} dla ${targetAddress}`);
+
+        // Wywołujemy revokePermission na smart kontrakcie
         const tx = await adminAccessControlContract.revokePermission(targetAddress, table, operation);
         const receipt = await tx.wait();
-
-        console.log(`[ADMIN] ✅ Uprawnienia odebrane w bloku: ${receipt.blockNumber}`);
 
         return res.json({
             status: "success",
@@ -214,8 +249,8 @@ app.post('/api/admin/revoke', async (req: Request, res: Response): Promise<any> 
         });
 
     } catch (error: any) {
-        console.error("Błąd podczas odbierania uprawnień:", error.reason || error);
-        return res.status(500).json({ status: "error", message: "Błąd serwera lub brak uprawnień admina (Smart Contract odrzucił transakcję)." });
+        console.error("Błąd podczas odbierania uprawnień:", error);
+        return res.status(500).json({ status: "error", message: "Błąd serwera." });
     }
 });
 
