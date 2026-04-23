@@ -16,6 +16,10 @@ const provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
 const proxyPrivateKey = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const proxyWallet = new ethers.Wallet(proxyPrivateKey, provider);
 
+// Klucz prywatny Konta #0 (Deployer Admin) z Hardhat
+const adminPrivateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
+
 // TUTAJ WKLEJ ADRESY ZE SKRYPTU WDROŻENIOWEGO
 const ACCESS_CONTROL_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const AUDIT_LOG_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
@@ -31,6 +35,13 @@ const auditLogContract = new ethers.Contract(
     AUDIT_LOG_ADDRESS,
     auditLogArtifact.abi,
     proxyWallet
+);
+
+// Tworzymy instancję kontraktu z podpiętym portfelem Admina
+const adminAccessControlContract = new ethers.Contract(
+    ACCESS_CONTROL_ADDRESS,
+    accessControlArtifact.abi,
+    adminWallet
 );
 
 // Zaktualizowana funkcja rekurencyjna (odporna na specyfikę DELETE i UPDATE)
@@ -155,6 +166,56 @@ app.post('/api/query', async (req: Request, res: Response): Promise<any> => {
     } catch (error) {
         console.error("Wystąpił błąd w Proxy:", error);
         return res.status(500).json({ status: "error", message: "Błąd serwera" });
+    }
+});
+
+// --- NOWY ENDPOINT ADMINISTRACYJNY ---
+app.post('/api/admin/grant', async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { targetAddress, table, operation } = req.body;
+
+        console.log(`[ADMIN] Próba nadania uprawnień: ${operation} na tabeli ${table} dla ${targetAddress}`);
+
+        // Wywołujemy funkcję w smart kontrakcie. Ponieważ zmienia ona stan, musimy poczekać na blok.
+        const tx = await adminAccessControlContract.grantPermission(targetAddress, table, operation);
+        const receipt = await tx.wait();
+
+        console.log(`[ADMIN] ✅ Uprawnienia nadane w bloku: ${receipt.blockNumber}`);
+
+        return res.json({
+            status: "success",
+            message: `Nadano uprawnienie ${operation} na tabeli ${table} dla adresu ${targetAddress}`,
+            txHash: receipt.hash
+        });
+
+    } catch (error: any) {
+        console.error("Błąd podczas nadawania uprawnień:", error.reason || error);
+        return res.status(500).json({ status: "error", message: "Błąd serwera lub brak uprawnień admina (Smart Contract odrzucił transakcję)." });
+    }
+});
+
+// --- NOWY ENDPOINT ADMINISTRACYJNY ---
+app.post('/api/admin/revoke', async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { targetAddress, table, operation } = req.body;
+
+        console.log(`[ADMIN] Próba odebrania uprawnień: ${operation} na tabeli ${table} dla ${targetAddress}`);
+
+        // Wywołujemy funkcję w smart kontrakcie. Ponieważ zmienia ona stan, musimy poczekać na blok.
+        const tx = await adminAccessControlContract.revokePermission(targetAddress, table, operation);
+        const receipt = await tx.wait();
+
+        console.log(`[ADMIN] ✅ Uprawnienia odebrane w bloku: ${receipt.blockNumber}`);
+
+        return res.json({
+            status: "success",
+            message: `Odebrano uprawnienie ${operation} na tabeli ${table} dla adresu ${targetAddress}`,
+            txHash: receipt.hash
+        });
+
+    } catch (error: any) {
+        console.error("Błąd podczas odbierania uprawnień:", error.reason || error);
+        return res.status(500).json({ status: "error", message: "Błąd serwera lub brak uprawnień admina (Smart Contract odrzucił transakcję)." });
     }
 });
 
