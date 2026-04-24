@@ -1,6 +1,17 @@
 import express, { Request, Response } from 'express';
 import { ethers } from 'ethers';
 import { parse, Statement } from 'pgsql-ast-parser';
+import { Pool } from 'pg';
+
+// --- KONFIGURACJA POSTGRESQL ---
+const pgPool = new Pool({
+    user: 'postgres',
+    host: 'localhost',
+    database: 'brus_db',
+    password: 'beton',
+    port: 5432,
+});
+pgPool.connect().then(() => console.log("🐘 Połączono z bazą PostgreSQL")).catch(err => console.error("Błąd połączenia z PG", err));
 
 // 1. Ładowanie ABI wygenerowanych przez Hardhat z folderu artifacts
 const accessControlArtifact = require('../artifacts/contracts/DatabaseAccessControl.sol/DatabaseAccessControl.json');
@@ -156,13 +167,22 @@ app.post('/api/query', async (req: Request, res: Response): Promise<any> => {
             txHashes.push(receipt.hash);
         }
 
-        // KROK C: W tym miejscu w przyszłości przekażesz zapytanie do PostgreSQL
-        // const dbResult = await pgClient.query(query);
+        console.log(`[PROXY DB] Wysyłanie zapytania do docelowej bazy PostgreSQL...`);
+
+        // KROK C: Wykonanie zwalidowanego zapytania w bazie danych
+        // Używamy oryginalnego 'query' otrzymanego od klienta
+        const dbResult = await pgPool.query(query);
+
+        console.log(`[PROXY DB] ✅ Wykonano. Zmodyfikowano wierszy: ${dbResult.rowCount}`);
 
         return res.json({
             status: "success",
-            message: "Operacja autoryzowana i zalogowana w Blockchainie!",
-            txHashes: txHashes // Zwracamy tablicę hashów transakcji
+            message: "Operacja autoryzowana, zalogowana w Blockchainie i wykonana w bazie SQL!",
+            txHashes: txHashes,
+            // Jeśli to był SELECT, dbResult.rows będzie zawierać dane
+            dbData: dbResult.rows,
+            // Dla INSERT/UPDATE/DELETE zwróci liczbę dotkniętych wierszy
+            affectedRows: dbResult.rowCount
         });
 
     } catch (error) {
